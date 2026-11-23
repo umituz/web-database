@@ -8,6 +8,8 @@ export function sql(url: string) {
   return neon(url);
 }
 
+export function createDb(url: string): Db;
+export function createDb<TSchema extends Record<string, unknown>>(url: string, schema: TSchema): Db<TSchema>;
 export function createDb<TSchema extends Record<string, unknown>>(
   url: string,
   schema?: TSchema,
