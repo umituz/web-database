@@ -1,0 +1,71 @@
+{
+  "name": "@umituz/web-database",
+  "version": "1.0.0",
+  "description": "Database layer for the fleet — the single vendor-coupled module (Neon serverless HTTP driver today): sql(url) raw executor, createDb(url, schema) drizzle factory, Db type alias, and db lifecycle tooling (reset / snapshot / seed)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./driver": "./src/driver.ts",
+    "./lifecycle": "./src/lifecycle.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm test",
+    "version:patch": "npm version patch -m 'chore: release v%s'",
+    "version:minor": "npm version minor -m 'chore: release v%s'",
+    "version:major": "npm version major -m 'chore: release v%s'"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "^0.45.4"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.9",
+    "@eslint/js": "^9.32.0",
+    "@types/node": "~22.13.10",
+    "drizzle-orm": "^0.45.4",
+    "eslint": "^9.32.0",
+    "typescript": "~5.9.2",
+    "typescript-eslint": "^8.58.0",
+    "vitest": "3.2.4"
+  },
+  "keywords": [
+    "database",
+    "postgres",
+    "neon",
+    "drizzle",
+    "driver",
+    "vendor-isolation",
+    "lifecycle",
+    "snapshot",
+    "seed",
+    "reset"
+  ],
+  "author": "umituz",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umituz/web-database.git"
+  },
+  "bugs": {
+    "url": "https://github.com/umituz/web-database/issues"
+  },
+  "homepage": "https://github.com/umituz/web-database#readme"
+}
