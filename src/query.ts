@@ -5,10 +5,14 @@ import type { Db } from './driver';
 
 export type AnyPgTable = PgTable<TableConfig>;
 
-export type BatchCapableDb = {
-  batch?: <T extends readonly unknown[]>(queries: readonly [...T]) => Promise<{ [K in keyof T]: Awaited<T[K]> }>;
-  select: Db['select'];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyDb = Db<any> | {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  select: Db<any>['select'];
+  batch?: unknown;
 };
+
+export type BatchCapableDb = AnyDb;
 
 type TableColumns<T extends AnyPgTable> = T['_']['columns'];
 
@@ -46,12 +50,13 @@ export async function batchQueries<T extends readonly PromiseLike<unknown>[]>(
   queries: readonly [...T]
 ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
 export async function batchQueries(
-  db: BatchCapableDb,
+  db: AnyDb,
   queries: Record<string, PromiseLike<unknown>> | readonly PromiseLike<unknown>[]
 ): Promise<unknown> {
+  const hasBatch = typeof (db as { batch?: unknown }).batch === 'function';
   if (Array.isArray(queries)) {
-    if (typeof db.batch === 'function') {
-      return db.batch(queries as never);
+    if (hasBatch) {
+      return (db as unknown as { batch: (items: readonly unknown[]) => Promise<unknown[]> }).batch(queries);
     }
     return Promise.all(queries);
   }
@@ -61,8 +66,8 @@ export async function batchQueries(
   const promiseList = keys.map((key) => queryMap[key]);
 
   let results: unknown[];
-  if (typeof db.batch === 'function') {
-    results = (await db.batch(promiseList as never)) as unknown[];
+  if (hasBatch) {
+    results = (await (db as unknown as { batch: (items: readonly unknown[]) => Promise<unknown[]> }).batch(promiseList)) as unknown[];
   } else {
     results = await Promise.all(promiseList);
   }

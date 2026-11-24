@@ -16,6 +16,7 @@ export {
   findMany,
 } from './query';
 export type {
+  AnyDb,
   AnyPgTable,
   BatchCapableDb,
   FindManyOptions,
