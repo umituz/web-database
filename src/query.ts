@@ -18,7 +18,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { InferInsertModel, InferSelectModel, SQL, SQLWrapper } from 'drizzle-orm';
-import type { PgTable, TableConfig } from 'drizzle-orm/pg-core';
+import type { PgColumn, PgTable, TableConfig } from 'drizzle-orm/pg-core';
 import type { Db } from './driver';
 
 export {
