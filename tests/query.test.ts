@@ -253,7 +253,8 @@ describe('query helpers', { timeout: 15000 }, () => {
 
   it('rawSql enables raw sql template expressions', async () => {
     const db = await makeTestDb();
-    const rows = await db.select({ val: rawSql`1 + 1` });
-    expect(Number(rows[0]?.val)).toBe(2);
+    await insertRow(db as never, widgets, { id: 'w_raw', name: 'RawWidget', count: 42 });
+    const found = await findFirst(db as never, widgets, rawSql`${widgets.count} = 42`);
+    expect(found?.id).toBe('w_raw');
   });
 });

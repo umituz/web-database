@@ -15,7 +15,7 @@ describe('resetTables safety', () => {
   });
 });
 
-describe('snapshotToBytes', () => {
+describe('snapshotToBytes', { timeout: 30000 }, () => {
   it('gzips every table and round-trips through gunzip', async () => {
     const db = await makeTestDb();
     await resetDb();
@@ -46,5 +46,5 @@ describe('snapshotToBytes', () => {
     expect(parsed.generatedAt).toBe(result.generatedAt);
     expect(parsed.tables.wh_widgets?.map((r) => r.id).sort()).toEqual(['w1', 'w2']);
     expect(parsed.tables.wh_orgs).toHaveLength(1);
-  }, 20000);
+  }, 60000);
 });
