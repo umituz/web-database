@@ -250,4 +250,10 @@ describe('query helpers', { timeout: 15000 }, () => {
     expect(decremented?.count).toBe(12);
     expect(decremented?.name).toBe('NewName');
   });
+
+  it('rawSql enables raw sql template expressions', async () => {
+    const db = await makeTestDb();
+    const rows = await db.select({ val: rawSql`1 + 1` });
+    expect(Number(rows[0]?.val)).toBe(2);
+  });
 });
