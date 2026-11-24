@@ -37,6 +37,7 @@ export {
   lte,
   ne,
   or,
+  sql as rawSql,
 };
 
 export type AnyPgTable = PgTable<TableConfig>;
@@ -405,4 +406,24 @@ export async function deleteWhere<T extends AnyPgTable>(
   }
 
   return (await (query as never as { returning: () => Promise<InferSelectModel<T>[]> }).returning());
+}
+
+export async function incrementRow<T extends AnyPgTable & { id: unknown }>(
+  db: AnyDb,
+  table: T,
+  id: string,
+  increments: Partial<Record<keyof T['_']['columns'] & string, number>>,
+  extraValues?: Partial<InferInsertModel<T>>,
+  options?: MutationOptions
+): Promise<InferSelectModel<T> | null> {
+  const patch: Record<string, unknown> = { ...extraValues };
+  for (const [colName, delta] of Object.entries(increments)) {
+    if (typeof delta === 'number') {
+      const col = (table as unknown as Record<string, unknown>)[colName] as PgColumn;
+      if (col) {
+        patch[colName] = sql`${col} + ${delta}`;
+      }
+    }
+  }
+  return updateRow(db, table, id, patch as Partial<InferInsertModel<T>>, options);
 }

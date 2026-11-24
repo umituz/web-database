@@ -11,8 +11,10 @@ import {
   findFirst,
   findMany,
   inArray,
+  incrementRow,
   insertMany,
   insertRow,
+  rawSql,
   softDeleteRow,
   softDeleteWhere,
   updateRow,
@@ -235,5 +237,17 @@ describe('query helpers', { timeout: 15000 }, () => {
     expect(res.first?.name).toBe('Batch 1');
     expect(res.second?.name).toBe('Batch 2');
     expect(res.count).toBe(2);
+  });
+
+  it('incrementRow atomically increments and decrements numeric columns', async () => {
+    const db = await makeTestDb();
+    await insertRow(db as never, widgets, { id: 'w_inc', name: 'IncWidget', count: 10 });
+
+    const incremented = await incrementRow(db as never, widgets, 'w_inc', { count: 5 });
+    expect(incremented?.count).toBe(15);
+
+    const decremented = await incrementRow(db as never, widgets, 'w_inc', { count: -3 }, { name: 'NewName' });
+    expect(decremented?.count).toBe(12);
+    expect(decremented?.name).toBe('NewName');
   });
 });
