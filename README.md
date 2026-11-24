@@ -15,6 +15,12 @@ Before this package, `neon()` + `drizzle(neon(url))` boilerplate (and the `@neon
 | `createDb(url, schema?)` | drizzle factory over the vendor driver — the only sanctioned way to build a `db` | `.` or `/driver` |
 | `sql(url)` | raw vendor executor (tagged-template queries) for scripts that shouldn't go through drizzle | `.` or `/driver` |
 | `Db` | the database type alias used across the fleet (`web-hono`'s `CrudDb`, `SnapshotDb` derive from it) | `.` or `/driver` |
+| `batchQueries(db, queries)` | single HTTP roundtrip batch runner over Neon HTTP batching (named record or array) | `.` or `/query` |
+| `findFirst(db, table, where?, options?)` | soft-delete aware single record query (`deletedAt IS NULL` auto-applied) | `.` or `/query` |
+| `findMany(db, table, options?)` | soft-delete aware collection query with limit, offset, and orderBy | `.` or `/query` |
+| `exists(db, table, where?, options?)` | soft-delete aware lightweight boolean existence probe (`SELECT 1 LIMIT 1`) | `.` or `/query` |
+| `countRows(db, table, where?, options?)` | soft-delete aware exact count query | `.` or `/query` |
+| `findById(db, table, id, options?)` | primary key lookup helper | `.` or `/query` |
 | `resetTables` / `snapshotToSeed` / `seedFromSnapshot` / `snapshotToBytes` | lifecycle tooling: prefix-guarded drops, snapshot export, snapshot import | `.` or `/lifecycle` |
 
 `resetTables` keeps the fleet's shared-database safety: it drops only tables carrying your project prefix and hard-stops the moment it sees a prefix-less table.
