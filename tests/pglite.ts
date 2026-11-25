@@ -6,6 +6,8 @@ const DDL = `
     id text PRIMARY KEY,
     name text,
     count integer,
+    active boolean DEFAULT true,
+    capacity integer DEFAULT 100,
     opened_at timestamptz,
     best_before date,
     created_at timestamptz NOT NULL DEFAULT now(),

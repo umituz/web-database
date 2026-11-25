@@ -1,9 +1,11 @@
-import { pgTable, text, timestamp, integer, date, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, date, jsonb, boolean } from 'drizzle-orm/pg-core';
 
 export const widgets = pgTable('wh_widgets', {
   id: text('id').primaryKey(),
   name: text('name'),
   count: integer('count'),
+  active: boolean('active').default(true),
+  capacity: integer('capacity').default(100),
   openedAt: timestamp('opened_at', { withTimezone: true }),
   bestBefore: date('best_before'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

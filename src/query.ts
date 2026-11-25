@@ -40,18 +40,22 @@ export {
   sql as rawSql,
 };
 
+export class NotFoundError extends Error {
+  readonly status = 404;
+  readonly code = 'NOT_FOUND';
+  constructor(message = 'Resource not found') {
+    super(message);
+    this.name = 'NotFoundError';
+  }
+}
+
 export type AnyPgTable = PgTable<TableConfig>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyDb = Db<any> | {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  select: Db<any>['select'];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  insert: Db<any>['insert'];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  update: Db<any>['update'];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete: Db<any>['delete'];
+export type AnyDb = Db<Record<string, unknown>> | {
+  select: Db<Record<string, unknown>>['select'];
+  insert: Db<Record<string, unknown>>['insert'];
+  update: Db<Record<string, unknown>>['update'];
+  delete: Db<Record<string, unknown>>['delete'];
   batch?: unknown;
 };
 
@@ -81,6 +85,15 @@ export interface FindManyOptions<T extends AnyPgTable> {
 
 export interface MutationOptions {
   withDeleted?: boolean;
+}
+
+export interface PaginationResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasMore: boolean;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -187,6 +200,23 @@ export async function findFirst<T extends AnyPgTable>(
   return rows[0] ?? null;
 }
 
+export async function findFirstOrThrow<T extends AnyPgTable>(
+  db: BatchCapableDb,
+  table: T,
+  where?: WhereInput<T>,
+  labelOrMessage?: string | (() => Error),
+  options?: { withDeleted?: boolean }
+): Promise<InferSelectModel<T>> {
+  const row = await findFirst(db, table, where, options);
+  if (!row) {
+    if (typeof labelOrMessage === 'function') {
+      throw labelOrMessage();
+    }
+    throw new NotFoundError(labelOrMessage ? `${labelOrMessage} not found` : 'Resource not found');
+  }
+  return row;
+}
+
 export async function findMany<T extends AnyPgTable>(
   db: BatchCapableDb,
   table: T,
@@ -233,6 +263,15 @@ export async function exists<T extends AnyPgTable>(
   return rows.length > 0;
 }
 
+export async function existsById<T extends AnyPgTable & { id: unknown }>(
+  db: BatchCapableDb,
+  table: T,
+  id: string,
+  options?: { withDeleted?: boolean }
+): Promise<boolean> {
+  return exists(db, table, eq(table.id as never, id), options);
+}
+
 export async function countRows<T extends AnyPgTable>(
   db: BatchCapableDb,
   table: T,
@@ -262,6 +301,197 @@ export async function findById<T extends AnyPgTable & { id: unknown }>(
   );
 }
 
+export async function findByIdOrThrow<T extends AnyPgTable & { id: unknown }>(
+  db: BatchCapableDb,
+  table: T,
+  id: string,
+  labelOrMessage?: string | ((id: string) => Error),
+  options?: { withDeleted?: boolean }
+): Promise<InferSelectModel<T>> {
+  const row = await findById(db, table, id, options);
+  if (!row) {
+    if (typeof labelOrMessage === 'function') {
+      throw labelOrMessage(id);
+    }
+    throw new NotFoundError(labelOrMessage ? `${labelOrMessage} not found` : 'Resource not found');
+  }
+  return row;
+}
+
+export async function findManyByIds<T extends AnyPgTable & { id: unknown }>(
+  db: BatchCapableDb,
+  table: T,
+  ids: readonly string[],
+  options?: Omit<FindManyOptions<T>, 'where'>
+): Promise<InferSelectModel<T>[]> {
+  if (ids.length === 0) return [];
+  return findMany(db, table, {
+    ...options,
+    where: inArray(table.id as never, [...ids]),
+  });
+}
+
+export async function findMapByIds<T extends AnyPgTable & { id: unknown }>(
+  db: BatchCapableDb,
+  table: T,
+  ids: readonly string[],
+  options?: Omit<FindManyOptions<T>, 'where'>
+): Promise<Map<string, InferSelectModel<T>>> {
+  const rows = await findManyByIds(db, table, ids, options);
+  const map = new Map<string, InferSelectModel<T>>();
+  for (const row of rows) {
+    map.set(String((row as unknown as { id: unknown }).id), row);
+  }
+  return map;
+}
+
+export async function pluck<T extends AnyPgTable, K extends keyof TableColumns<T> & string>(
+  db: BatchCapableDb,
+  table: T,
+  column: K,
+  options?: FindManyOptions<T>
+): Promise<Array<InferSelectModel<T>[K]>> {
+  const col = (table as unknown as Record<string, unknown>)[column] as PgColumn;
+  const condition = resolveWhere(table, options?.where, options?.withDeleted);
+  let query = db.select({ val: col }).from(table as never);
+
+  if (condition) {
+    query = (query as never as { where: (c: SQL) => typeof query }).where(condition);
+  }
+
+  if (options?.orderBy) {
+    const order = typeof options.orderBy === 'function'
+      ? options.orderBy(table as unknown as TableColumns<T>)
+      : options.orderBy;
+    const orderClause = Array.isArray(order) ? order : [order];
+    query = (query as never as { orderBy: (...clauses: OrderByItem[]) => typeof query }).orderBy(...orderClause);
+  }
+
+  if (typeof options?.offset === 'number') {
+    query = (query as never as { offset: (n: number) => typeof query }).offset(options.offset);
+  }
+
+  if (typeof options?.limit === 'number') {
+    query = (query as never as { limit: (n: number) => typeof query }).limit(options.limit);
+  }
+
+  const rows = (await (query as never as Promise<{ val: InferSelectModel<T>[K] }[]>));
+  return rows.map((r) => r.val);
+}
+
+export async function sumRows<T extends AnyPgTable>(
+  db: BatchCapableDb,
+  table: T,
+  column: PgColumn | (keyof TableColumns<T> & string),
+  where?: WhereInput<T>,
+  options?: { withDeleted?: boolean }
+): Promise<number> {
+  const col = typeof column === 'string'
+    ? ((table as unknown as Record<string, unknown>)[column] as PgColumn)
+    : column;
+  const condition = resolveWhere(table, where, options?.withDeleted);
+  let query = db.select({ sumVal: sql<number | string>`coalesce(sum(${col}), 0)` }).from(table as never);
+  if (condition) {
+    query = (query as never as { where: (c: SQL) => typeof query }).where(condition);
+  }
+  const [row] = await (query as never as Promise<{ sumVal: number | string }[]>);
+  return Number(row?.sumVal ?? 0);
+}
+
+export async function avgRows<T extends AnyPgTable>(
+  db: BatchCapableDb,
+  table: T,
+  column: PgColumn | (keyof TableColumns<T> & string),
+  where?: WhereInput<T>,
+  options?: { withDeleted?: boolean }
+): Promise<number | null> {
+  const col = typeof column === 'string'
+    ? ((table as unknown as Record<string, unknown>)[column] as PgColumn)
+    : column;
+  const condition = resolveWhere(table, where, options?.withDeleted);
+  let query = db.select({ avgVal: sql<number | string | null>`avg(${col})` }).from(table as never);
+  if (condition) {
+    query = (query as never as { where: (c: SQL) => typeof query }).where(condition);
+  }
+  const [row] = await (query as never as Promise<{ avgVal: number | string | null }[]>);
+  return row?.avgVal != null ? Number(row.avgVal) : null;
+}
+
+export async function minRows<T extends AnyPgTable>(
+  db: BatchCapableDb,
+  table: T,
+  column: PgColumn | (keyof TableColumns<T> & string),
+  where?: WhereInput<T>,
+  options?: { withDeleted?: boolean }
+): Promise<number | null> {
+  const col = typeof column === 'string'
+    ? ((table as unknown as Record<string, unknown>)[column] as PgColumn)
+    : column;
+  const condition = resolveWhere(table, where, options?.withDeleted);
+  let query = db.select({ minVal: sql<number | string | null>`min(${col})` }).from(table as never);
+  if (condition) {
+    query = (query as never as { where: (c: SQL) => typeof query }).where(condition);
+  }
+  const [row] = await (query as never as Promise<{ minVal: number | string | null }[]>);
+  return row?.minVal != null ? Number(row.minVal) : null;
+}
+
+export async function maxRows<T extends AnyPgTable>(
+  db: BatchCapableDb,
+  table: T,
+  column: PgColumn | (keyof TableColumns<T> & string),
+  where?: WhereInput<T>,
+  options?: { withDeleted?: boolean }
+): Promise<number | null> {
+  const col = typeof column === 'string'
+    ? ((table as unknown as Record<string, unknown>)[column] as PgColumn)
+    : column;
+  const condition = resolveWhere(table, where, options?.withDeleted);
+  let query = db.select({ maxVal: sql<number | string | null>`max(${col})` }).from(table as never);
+  if (condition) {
+    query = (query as never as { where: (c: SQL) => typeof query }).where(condition);
+  }
+  const [row] = await (query as never as Promise<{ maxVal: number | string | null }[]>);
+  return row?.maxVal != null ? Number(row.maxVal) : null;
+}
+
+export async function paginate<T extends AnyPgTable>(
+  db: BatchCapableDb,
+  table: T,
+  options?: {
+    where?: WhereInput<T>;
+    page?: number;
+    pageSize?: number;
+    orderBy?: OrderByItem | OrderByItem[] | ((cols: TableColumns<T>) => OrderByItem | OrderByItem[]);
+    withDeleted?: boolean;
+  }
+): Promise<PaginationResult<InferSelectModel<T>>> {
+  const page = Math.max(1, options?.page ?? 1);
+  const pageSize = Math.max(1, Math.min(1000, options?.pageSize ?? 50));
+  const offset = (page - 1) * pageSize;
+
+  const { items, total } = await batchQueries(db, {
+    items: findMany(db, table, {
+      where: options?.where,
+      orderBy: options?.orderBy,
+      limit: pageSize,
+      offset,
+      withDeleted: options?.withDeleted,
+    }),
+    total: countRows(db, table, options?.where, { withDeleted: options?.withDeleted }),
+  });
+
+  const totalPages = Math.ceil(total / pageSize);
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    totalPages,
+    hasMore: page < totalPages,
+  };
+}
+
 export async function insertRow<T extends AnyPgTable>(
   db: AnyDb,
   table: T,
@@ -288,6 +518,40 @@ export async function insertMany<T extends AnyPgTable>(
     .insert(table as never)
     .values(values as never)
     .returning() as unknown as Promise<InferSelectModel<T>[]>));
+}
+
+export async function upsertRow<T extends AnyPgTable>(
+  db: AnyDb,
+  table: T,
+  values: InferInsertModel<T>,
+  options: {
+    target: PgColumn | PgColumn[];
+    set?: Partial<InferInsertModel<T>>;
+  }
+): Promise<InferSelectModel<T> | null> {
+  const insertBuilder = db.insert(table as never).values(values as never);
+  const targetCols = Array.isArray(options.target) ? options.target : [options.target];
+
+  let queryBuilder: { returning: () => Promise<InferSelectModel<T>[]> };
+  if (options.set && Object.keys(options.set).length > 0) {
+    const patch: Record<string, unknown> = { ...options.set };
+    if ('updatedAt' in table && patch.updatedAt === undefined) {
+      patch.updatedAt = currentTimestampForColumn((table as Record<string, unknown>).updatedAt);
+    }
+    queryBuilder = (insertBuilder as unknown as {
+      onConflictDoUpdate: (config: { target: PgColumn[]; set: unknown }) => typeof queryBuilder;
+    }).onConflictDoUpdate({
+      target: targetCols,
+      set: patch,
+    });
+  } else {
+    queryBuilder = (insertBuilder as unknown as {
+      onConflictDoNothing: (config?: { target: PgColumn[] }) => typeof queryBuilder;
+    }).onConflictDoNothing({ target: targetCols });
+  }
+
+  const rows = await queryBuilder.returning();
+  return rows[0] ?? null;
 }
 
 export async function updateRow<T extends AnyPgTable & { id: unknown }>(
@@ -339,12 +603,13 @@ export async function updateWhere<T extends AnyPgTable>(
 export async function softDeleteRow<T extends AnyPgTable & { id: unknown }>(
   db: AnyDb,
   table: T,
-  id: string
+  id: string,
+  extraValues?: Partial<InferInsertModel<T>>
 ): Promise<InferSelectModel<T> | null> {
   const col = (table as Record<string, unknown>).deletedAt;
   const timestamp = currentTimestampForColumn(col);
-  const patch: Record<string, unknown> = { deletedAt: timestamp };
-  if ('updatedAt' in table) {
+  const patch: Record<string, unknown> = { deletedAt: timestamp, ...extraValues };
+  if ('updatedAt' in table && patch.updatedAt === undefined) {
     patch.updatedAt = currentTimestampForColumn((table as Record<string, unknown>).updatedAt);
   }
 
@@ -364,12 +629,13 @@ export async function softDeleteRow<T extends AnyPgTable & { id: unknown }>(
 export async function softDeleteWhere<T extends AnyPgTable>(
   db: AnyDb,
   table: T,
-  where: WhereInput<T>
+  where: WhereInput<T>,
+  extraValues?: Partial<InferInsertModel<T>>
 ): Promise<InferSelectModel<T>[]> {
   const col = (table as Record<string, unknown>).deletedAt;
   const timestamp = currentTimestampForColumn(col);
-  const patch: Record<string, unknown> = { deletedAt: timestamp };
-  if ('updatedAt' in table) {
+  const patch: Record<string, unknown> = { deletedAt: timestamp, ...extraValues };
+  if ('updatedAt' in table && patch.updatedAt === undefined) {
     patch.updatedAt = currentTimestampForColumn((table as Record<string, unknown>).updatedAt);
   }
 
@@ -380,6 +646,16 @@ export async function softDeleteWhere<T extends AnyPgTable>(
   }
 
   return (await (query as never as { returning: () => Promise<InferSelectModel<T>[]> }).returning());
+}
+
+export async function softDeleteByIds<T extends AnyPgTable & { id: unknown }>(
+  db: AnyDb,
+  table: T,
+  ids: readonly string[],
+  extraValues?: Partial<InferInsertModel<T>>
+): Promise<InferSelectModel<T>[]> {
+  if (ids.length === 0) return [];
+  return softDeleteWhere(db, table, (cols) => inArray(cols.id as never, [...ids]), extraValues);
 }
 
 export async function deleteRow<T extends AnyPgTable & { id: unknown }>(
@@ -408,6 +684,65 @@ export async function deleteWhere<T extends AnyPgTable>(
   return (await (query as never as { returning: () => Promise<InferSelectModel<T>[]> }).returning());
 }
 
+export async function deleteByIds<T extends AnyPgTable & { id: unknown }>(
+  db: AnyDb,
+  table: T,
+  ids: readonly string[]
+): Promise<InferSelectModel<T>[]> {
+  if (ids.length === 0) return [];
+  return deleteWhere(db, table, (cols) => inArray(cols.id as never, [...ids]));
+}
+
+export async function restoreRow<T extends AnyPgTable & { id: unknown }>(
+  db: AnyDb,
+  table: T,
+  id: string,
+  extraValues?: Partial<InferInsertModel<T>>
+): Promise<InferSelectModel<T> | null> {
+  const patch: Record<string, unknown> = { deletedAt: null, ...extraValues };
+  if ('updatedAt' in table && patch.updatedAt === undefined) {
+    patch.updatedAt = currentTimestampForColumn((table as Record<string, unknown>).updatedAt);
+  }
+
+  const condition = eq(table.id as never, id);
+  const rows = (await (db
+    .update(table as never)
+    .set(patch as never)
+    .where(condition)
+    .returning() as unknown as Promise<InferSelectModel<T>[]>));
+  return rows[0] ?? null;
+}
+
+export async function restoreWhere<T extends AnyPgTable>(
+  db: AnyDb,
+  table: T,
+  where: WhereInput<T>,
+  extraValues?: Partial<InferInsertModel<T>>
+): Promise<InferSelectModel<T>[]> {
+  const patch: Record<string, unknown> = { deletedAt: null, ...extraValues };
+  if ('updatedAt' in table && patch.updatedAt === undefined) {
+    patch.updatedAt = currentTimestampForColumn((table as Record<string, unknown>).updatedAt);
+  }
+
+  const condition = resolveWhere(table, where, true);
+  let query = db.update(table as never).set(patch as never);
+  if (condition) {
+    query = (query as never as { where: (c: SQL) => typeof query }).where(condition);
+  }
+
+  return (await (query as never as { returning: () => Promise<InferSelectModel<T>[]> }).returning());
+}
+
+export async function restoreByIds<T extends AnyPgTable & { id: unknown }>(
+  db: AnyDb,
+  table: T,
+  ids: readonly string[],
+  extraValues?: Partial<InferInsertModel<T>>
+): Promise<InferSelectModel<T>[]> {
+  if (ids.length === 0) return [];
+  return restoreWhere(db, table, (cols) => inArray(cols.id as never, [...ids]), extraValues);
+}
+
 export async function incrementRow<T extends AnyPgTable & { id: unknown }>(
   db: AnyDb,
   table: T,
@@ -426,4 +761,78 @@ export async function incrementRow<T extends AnyPgTable & { id: unknown }>(
     }
   }
   return updateRow(db, table, id, patch as Partial<InferInsertModel<T>>, options);
+}
+
+export async function clampIncrementRow<T extends AnyPgTable & { id: unknown }>(
+  db: AnyDb,
+  table: T,
+  id: string,
+  column: keyof TableColumns<T> & string,
+  delta: number,
+  options?: {
+    min?: number;
+    max?: number | (keyof TableColumns<T> & string);
+    extraValues?: Partial<InferInsertModel<T>>;
+    withDeleted?: boolean;
+  }
+): Promise<InferSelectModel<T> | null> {
+  const col = (table as unknown as Record<string, unknown>)[column] as PgColumn;
+  const nextVal = sql`${col} + ${delta}`;
+  let expr: SQL = nextVal;
+
+  if (options?.max !== undefined) {
+    const maxExpr = typeof options.max === 'string'
+      ? ((table as unknown as Record<string, unknown>)[options.max] as PgColumn)
+      : sql`${options.max}`;
+    expr = sql`LEAST(${maxExpr}, ${expr})`;
+  }
+
+  if (options?.min !== undefined) {
+    expr = sql`GREATEST(${options.min}, ${expr})`;
+  }
+
+  const patch: Record<string, unknown> = {
+    ...options?.extraValues,
+    [column]: expr,
+  };
+
+  return updateRow(db, table, id, patch as Partial<InferInsertModel<T>>, {
+    withDeleted: options?.withDeleted,
+  });
+}
+
+export async function toggleRow<T extends AnyPgTable & { id: unknown }>(
+  db: AnyDb,
+  table: T,
+  id: string,
+  column: keyof TableColumns<T> & string,
+  extraValues?: Partial<InferInsertModel<T>>,
+  options?: MutationOptions
+): Promise<InferSelectModel<T> | null> {
+  const col = (table as unknown as Record<string, unknown>)[column] as PgColumn;
+  const patch: Record<string, unknown> = {
+    ...extraValues,
+    [column]: sql`NOT ${col}`,
+  };
+  return updateRow(db, table, id, patch as Partial<InferInsertModel<T>>, options);
+}
+
+export function searchCondition<T extends AnyPgTable>(
+  columns: (PgColumn | (keyof TableColumns<T> & string))[],
+  query: string,
+  table?: T
+): SQL | undefined {
+  const q = query.trim();
+  if (!q) return undefined;
+  const safe = `%${q.replace(/[%_\\]/g, '\\$&')}%`;
+  const conds: SQL[] = [];
+  for (const c of columns) {
+    const col = typeof c === 'string' && table
+      ? ((table as unknown as Record<string, unknown>)[c] as PgColumn)
+      : (c as PgColumn);
+    if (col) {
+      conds.push(ilike(col, safe));
+    }
+  }
+  return conds.length > 0 ? or(...conds) : undefined;
 }
