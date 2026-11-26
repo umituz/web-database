@@ -481,11 +481,12 @@ export async function paginate<T extends AnyPgTable>(
   options?: PaginateOptions<T>
 ): Promise<PaginationResult<Record<string, unknown>>> {
   const pageSize = Math.max(1, Math.min(1000, options?.pageSize ?? 50));
+  const rawOffset = typeof options?.offset === 'number' ? Math.max(0, options.offset) : undefined;
   const page =
     typeof options?.page === 'number'
       ? Math.max(1, options.page)
-      : Math.floor(Math.max(0, options?.offset ?? 0) / pageSize) + 1;
-  const offset = (page - 1) * pageSize;
+      : Math.floor((rawOffset ?? 0) / pageSize) + 1;
+  const offset = rawOffset ?? (page - 1) * pageSize;
 
   const projection =
     options?.columns === undefined

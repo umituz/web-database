@@ -303,6 +303,26 @@ describe('query helpers', { timeout: 15000 }, () => {
     expect(slice.hasMore).toBe(true);
   });
 
+  it('paginate applies a non-aligned offset exactly', async () => {
+    const db = await makeTestDb();
+    const rows = Array.from({ length: 22 }, (_, i) => ({
+      id: `of_${i + 1}`,
+      name: `Offset ${i + 1}`,
+      count: i + 1,
+    }));
+    await insertMany(db as never, widgets, rows);
+
+    const slice = await paginate(db as never, widgets, {
+      offset: 12,
+      pageSize: 10,
+      orderBy: widgets.count,
+    });
+
+    expect(slice.page).toBe(2);
+    expect(slice.items[0]?.id).toBe('of_13');
+    expect(slice.items).toHaveLength(10);
+  });
+
   it('insertRow and insertMany insert and return rows', async () => {
     const db = await makeTestDb();
     const single = await insertRow(db as never, widgets, { id: 'w_ins', name: 'Inserted' });
