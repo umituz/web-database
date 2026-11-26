@@ -1020,6 +1020,56 @@ export async function countOrgRows<T extends AnyPgTable>(
   return Number(row?.total ?? 0);
 }
 
+export interface PaginateOrgRowsOptions<T extends AnyPgTable> {
+  orgColumn?: string;
+  page?: number;
+  pageSize?: number;
+  offset?: number;
+  where?: WhereInput<T>;
+  orderBy?: FindManyOptions<T>['orderBy'];
+  withDeleted?: boolean;
+}
+
+export async function paginateOrgRows<T extends AnyPgTable>(
+  db: BatchCapableDb,
+  table: T,
+  organizationId: string,
+  options?: PaginateOrgRowsOptions<T>
+): Promise<PaginationResult<InferSelectModel<T>>> {
+  const pageSize = Math.max(1, Math.min(1000, options?.pageSize ?? 50));
+  const rawOffset = typeof options?.offset === 'number' ? Math.max(0, options.offset) : undefined;
+  const page =
+    typeof options?.page === 'number'
+      ? Math.max(1, options.page)
+      : Math.floor((rawOffset ?? 0) / pageSize) + 1;
+  const offset = rawOffset ?? (page - 1) * pageSize;
+
+  const [items, total] = await Promise.all([
+    findManyByOrg(db, table, organizationId, {
+      orgColumn: options?.orgColumn,
+      limit: pageSize,
+      offset,
+      orderBy: options?.orderBy,
+      where: options?.where,
+      withDeleted: options?.withDeleted,
+    }),
+    countOrgRows(db, table, organizationId, options?.where, {
+      orgColumn: options?.orgColumn,
+      withDeleted: options?.withDeleted,
+    }),
+  ]);
+
+  const totalPages = Math.ceil(total / pageSize);
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    totalPages,
+    hasMore: page < totalPages,
+  };
+}
+
 export async function updateOrgRow<T extends AnyPgTable & { id: unknown }>(
   db: AnyDb,
   table: T,

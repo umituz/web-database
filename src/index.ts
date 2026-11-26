@@ -52,6 +52,7 @@ export {
   or,
   orgCondition,
   paginate,
+  paginateOrgRows,
   pluck,
   rawSql,
   restoreByIds,
@@ -76,6 +77,7 @@ export type {
   FindManyOptions,
   MutationOptions,
   OrderByItem,
+  PaginateOrgRowsOptions,
   PaginationResult,
   WhereInput,
 } from './query';

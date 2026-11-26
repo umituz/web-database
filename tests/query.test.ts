@@ -32,6 +32,7 @@ import {
   minRows,
   orgCondition,
   paginate,
+  paginateOrgRows,
   pluck,
   rawSql,
   restoreByIds,
@@ -700,5 +701,39 @@ describe('query helpers', { timeout: 15000 }, () => {
   it('orgCondition generates eq condition for org column', async () => {
     const cond = orgCondition(tenantItems, 'org_cond');
     expect(cond).toBeDefined();
+  });
+
+  it('paginateOrgRows paginates multi-tenant items with metadata', async () => {
+    const db = await makeTestDb();
+    for (let i = 1; i <= 7; i++) {
+      await insertRow(db as never, tenantItems, {
+        id: `pg_item_${i}`,
+        organizationId: 'org_paginate',
+        title: `Item ${i}`,
+      });
+    }
+    await insertRow(db as never, tenantItems, {
+      id: 'pg_item_del',
+      organizationId: 'org_paginate',
+      title: 'Deleted Item',
+      deletedAt: new Date(),
+    });
+    await insertRow(db as never, tenantItems, {
+      id: 'pg_item_other',
+      organizationId: 'org_other',
+      title: 'Other Org Item',
+    });
+
+    const result = await paginateOrgRows(db as never, tenantItems, 'org_paginate', {
+      page: 2,
+      pageSize: 3,
+    });
+
+    expect(result.total).toBe(7);
+    expect(result.page).toBe(2);
+    expect(result.pageSize).toBe(3);
+    expect(result.totalPages).toBe(3);
+    expect(result.hasMore).toBe(true);
+    expect(result.items).toHaveLength(3);
   });
 });

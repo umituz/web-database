@@ -1,6 +1,6 @@
 {
   "name": "@umituz/web-database",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "Database layer for the fleet — the single vendor-coupled module (Neon serverless HTTP driver today): sql(url) raw executor, createDb(url, schema) drizzle factory, Db type alias, query utilities (batchQueries, findFirst, findMany, exists, countRows), and db lifecycle tooling (reset / snapshot / seed)",
   "type": "module",
   "main": "./src/index.ts",
