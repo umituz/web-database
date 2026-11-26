@@ -455,29 +455,81 @@ export async function maxRows<T extends AnyPgTable>(
   return row?.maxVal != null ? Number(row.maxVal) : null;
 }
 
+export interface PaginateOptions<T extends AnyPgTable> {
+  where?: WhereInput<T>;
+  page?: number;
+  pageSize?: number;
+  offset?: number;
+  orderBy?: OrderByItem | OrderByItem[] | ((cols: TableColumns<T>) => OrderByItem | OrderByItem[]);
+  withDeleted?: boolean;
+  columns?: Partial<Record<keyof TableColumns<T> & string, true>>;
+}
+
 export async function paginate<T extends AnyPgTable>(
   db: BatchCapableDb,
   table: T,
-  options?: {
-    where?: WhereInput<T>;
-    page?: number;
-    pageSize?: number;
-    orderBy?: OrderByItem | OrderByItem[] | ((cols: TableColumns<T>) => OrderByItem | OrderByItem[]);
-    withDeleted?: boolean;
-  }
-): Promise<PaginationResult<InferSelectModel<T>>> {
-  const page = Math.max(1, options?.page ?? 1);
+  options?: PaginateOptions<T> & { columns?: undefined }
+): Promise<PaginationResult<InferSelectModel<T>>>;
+export async function paginate<T extends AnyPgTable, C extends Partial<Record<keyof TableColumns<T> & string, true>>>(
+  db: BatchCapableDb,
+  table: T,
+  options: PaginateOptions<T> & { columns: C }
+): Promise<PaginationResult<Pick<InferSelectModel<T>, keyof C & keyof InferSelectModel<T>>>>;
+export async function paginate<T extends AnyPgTable>(
+  db: BatchCapableDb,
+  table: T,
+  options?: PaginateOptions<T>
+): Promise<PaginationResult<Record<string, unknown>>> {
   const pageSize = Math.max(1, Math.min(1000, options?.pageSize ?? 50));
+  const page =
+    typeof options?.page === 'number'
+      ? Math.max(1, options.page)
+      : Math.floor(Math.max(0, options?.offset ?? 0) / pageSize) + 1;
   const offset = (page - 1) * pageSize;
 
+  const projection =
+    options?.columns === undefined
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(options.columns)
+            .filter(([, enabled]) => enabled === true)
+            .map(([key]) => [key, (table as unknown as Record<string, unknown>)[key]]),
+        );
+
+  const itemsPromise =
+    projection === undefined
+      ? findMany(db, table, {
+          where: options?.where,
+          orderBy: options?.orderBy,
+          limit: pageSize,
+          offset,
+          withDeleted: options?.withDeleted,
+        })
+      : (async () => {
+          const condition = resolveWhere(table, options?.where, options?.withDeleted);
+          let query = (db as unknown as Db<Record<string, never>>)
+            .select(projection as never)
+            .from(table as never);
+
+          if (condition) {
+            query = (query as never as { where: (c: SQL) => typeof query }).where(condition);
+          }
+
+          if (options?.orderBy) {
+            const order = typeof options.orderBy === 'function'
+              ? options.orderBy(table as unknown as TableColumns<T>)
+              : options.orderBy;
+            const orderClause = Array.isArray(order) ? order : [order];
+            query = (query as never as { orderBy: (...clauses: OrderByItem[]) => typeof query }).orderBy(...orderClause);
+          }
+
+          query = (query as never as { offset: (n: number) => typeof query }).offset(offset);
+          query = (query as never as { limit: (n: number) => typeof query }).limit(pageSize);
+          return (await (query as never as Promise<Record<string, unknown>[]>)) as Record<string, unknown>[];
+        })();
+
   const { items, total } = await batchQueries(db, {
-    items: findMany(db, table, {
-      where: options?.where,
-      orderBy: options?.orderBy,
-      limit: pageSize,
-      offset,
-      withDeleted: options?.withDeleted,
-    }),
+    items: itemsPromise,
     total: countRows(db, table, options?.where, { withDeleted: options?.withDeleted }),
   });
 

@@ -260,6 +260,49 @@ describe('query helpers', { timeout: 15000 }, () => {
     expect(p3.hasMore).toBe(false);
   });
 
+  it('paginate projects only requested columns', async () => {
+    const db = await makeTestDb();
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      id: `pj_${i + 1}`,
+      name: `Projected ${i + 1}`,
+      count: i + 1,
+    }));
+    await insertMany(db as never, widgets, rows);
+
+    const page = await paginate(db as never, widgets, {
+      columns: { id: true, count: true },
+      pageSize: 5,
+      orderBy: widgets.count,
+    });
+
+    expect(page.total).toBe(12);
+    expect(page.items).toHaveLength(5);
+    expect(page.items[0]).toEqual({ id: 'pj_1', count: 1 });
+    expect(Object.keys(page.items[0] ?? {}).sort()).toEqual(['count', 'id']);
+  });
+
+  it('paginate derives page from an explicit offset', async () => {
+    const db = await makeTestDb();
+    const rows = Array.from({ length: 22 }, (_, i) => ({
+      id: `of_${i + 1}`,
+      name: `Offset ${i + 1}`,
+      count: i + 1,
+    }));
+    await insertMany(db as never, widgets, rows);
+
+    const slice = await paginate(db as never, widgets, {
+      offset: 10,
+      pageSize: 10,
+      orderBy: widgets.count,
+    });
+
+    expect(slice.page).toBe(2);
+    expect(slice.totalPages).toBe(3);
+    expect(slice.items).toHaveLength(10);
+    expect(slice.items[0]?.id).toBe('of_11');
+    expect(slice.hasMore).toBe(true);
+  });
+
   it('insertRow and insertMany insert and return rows', async () => {
     const db = await makeTestDb();
     const single = await insertRow(db as never, widgets, { id: 'w_ins', name: 'Inserted' });
