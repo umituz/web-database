@@ -910,18 +910,26 @@ export function searchCondition<T extends AnyPgTable>(
   return conds.length > 0 ? or(...conds) : undefined;
 }
 
-function resolveOrgColumn<T extends AnyPgTable>(table: T, orgColumn = 'organizationId'): PgColumn {
-  const col = (table as unknown as Record<string, unknown>)[orgColumn];
-  if (!col) {
-    throw new Error(`Table does not have column "${orgColumn}"`);
+function resolveOrgColumn<T extends AnyPgTable>(table: T, orgColumn?: string): PgColumn {
+  const t = table as unknown as Record<string, unknown>;
+  if (orgColumn) {
+    const col = t[orgColumn];
+    if (!col) {
+      throw new Error(`Table does not have column "${orgColumn}"`);
+    }
+    return col as PgColumn;
   }
-  return col as PgColumn;
+  const candidate = t.organizationId ?? t.orgId ?? t.tenantId ?? t.organization_id ?? t.org_id ?? t.tenant_id;
+  if (!candidate) {
+    throw new Error('Table does not have organizationId, orgId, or tenantId column');
+  }
+  return candidate as PgColumn;
 }
 
 export function orgCondition<T extends AnyPgTable>(
   table: T,
   organizationId: string,
-  orgColumn = 'organizationId'
+  orgColumn?: string
 ): SQL {
   const col = resolveOrgColumn(table, orgColumn);
   return eq(col, organizationId);

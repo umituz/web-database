@@ -50,7 +50,7 @@ import {
   upsertRow,
 } from '../src';
 import { makeTestDb, resetDb } from './pglite';
-import { tenantItems, widgets } from './helpers';
+import { tenantItems, tenantScopedItems, widgets } from './helpers';
 
 describe('query helpers', { timeout: 15000 }, () => {
   beforeEach(async () => {
@@ -578,6 +578,22 @@ describe('query helpers', { timeout: 15000 }, () => {
     expect(match?.title).toBe('Item A');
 
     const mismatch = await findOrgRow(db as never, tenantItems, 't_1', 'org_b');
+    expect(mismatch).toBeNull();
+  });
+
+  it('findOrgRow auto-detects tenantId column when organizationId is absent', async () => {
+    const db = await makeTestDb();
+    await insertRow(db as never, tenantScopedItems, {
+      id: 'ts_1',
+      tenantId: 'tenant_omega',
+      title: 'Omega Item',
+    });
+
+    const match = await findOrgRow(db as never, tenantScopedItems, 'ts_1', 'tenant_omega');
+    expect(match?.id).toBe('ts_1');
+    expect(match?.title).toBe('Omega Item');
+
+    const mismatch = await findOrgRow(db as never, tenantScopedItems, 'ts_1', 'tenant_alpha');
     expect(mismatch).toBeNull();
   });
 

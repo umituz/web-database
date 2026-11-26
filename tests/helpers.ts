@@ -30,3 +30,12 @@ export const tenantItems = pgTable('wh_tenant_items', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
+
+export const tenantScopedItems = pgTable('wh_tenant_scoped_items', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  title: text('title'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});

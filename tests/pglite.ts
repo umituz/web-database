@@ -31,6 +31,14 @@ const DDL = `
     updated_at timestamptz NOT NULL DEFAULT now(),
     deleted_at timestamptz
   );
+  CREATE TABLE wh_tenant_scoped_items (
+    id text PRIMARY KEY,
+    tenant_id text NOT NULL,
+    title text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    deleted_at timestamptz
+  );
 `;
 
 type PgliteDb = ReturnType<typeof drizzle>;
@@ -51,6 +59,7 @@ export async function resetDb(): Promise<void> {
   if (client) {
     await client.exec('TRUNCATE wh_widgets');
     await client.exec('TRUNCATE wh_tenant_items');
+    await client.exec('TRUNCATE wh_tenant_scoped_items');
   }
 }
 
