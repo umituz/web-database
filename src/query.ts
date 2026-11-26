@@ -138,10 +138,30 @@ function resolveWhere<T extends AnyPgTable>(table: T, where?: WhereInput<T>, wit
 }
 
 function currentTimestampForColumn(col: unknown): unknown {
-  if (col && typeof col === 'object' && 'dataType' in col && (col as { dataType: string }).dataType === 'string') {
-    return new Date().toISOString();
+  if (col && typeof col === 'object' && 'dataType' in col) {
+    const dataType = (col as { dataType: string }).dataType;
+    if (dataType === 'string') return new Date().toISOString();
+    if (dataType === 'number') return Date.now();
   }
   return new Date();
+}
+
+/** Insert-path timestamp fill: when the table carries createdAt/updatedAt
+ *  columns and the payload omits them, stamp them the way updateRow stamps
+ *  updatedAt — callers never hand-roll `createdAt: Date.now()` again. Never
+ *  mutates the caller's object. */
+function withInsertTimestamps<T extends AnyPgTable>(
+  table: T,
+  values: InferInsertModel<T>
+): InferInsertModel<T> {
+  const filled = values as Record<string, unknown>;
+  const needsCreated = 'createdAt' in table && filled.createdAt === undefined;
+  const needsUpdated = 'updatedAt' in table && filled.updatedAt === undefined;
+  if (!needsCreated && !needsUpdated) return values;
+  const patch = { ...filled };
+  if (needsCreated) patch.createdAt = currentTimestampForColumn((table as Record<string, unknown>).createdAt);
+  if (needsUpdated) patch.updatedAt = currentTimestampForColumn((table as Record<string, unknown>).updatedAt);
+  return patch as InferInsertModel<T>;
 }
 
 export async function batchQueries<T extends Record<string, PromiseLike<unknown>>>(
@@ -552,7 +572,7 @@ export async function insertRow<T extends AnyPgTable>(
 ): Promise<InferSelectModel<T>> {
   const rows = (await (db
     .insert(table as never)
-    .values(values as never)
+    .values(withInsertTimestamps(table, values) as never)
     .returning() as unknown as Promise<InferSelectModel<T>[]>));
   const row = rows[0];
   if (!row) {
@@ -569,7 +589,7 @@ export async function insertMany<T extends AnyPgTable>(
   if (values.length === 0) return [];
   return (await (db
     .insert(table as never)
-    .values(values as never)
+    .values(values.map((row) => withInsertTimestamps(table, row)) as never)
     .returning() as unknown as Promise<InferSelectModel<T>[]>));
 }
 
@@ -582,7 +602,7 @@ export async function upsertRow<T extends AnyPgTable>(
     set?: Partial<InferInsertModel<T>>;
   }
 ): Promise<InferSelectModel<T> | null> {
-  const insertBuilder = db.insert(table as never).values(values as never);
+  const insertBuilder = db.insert(table as never).values(withInsertTimestamps(table, values) as never);
   const targetCols = Array.isArray(options.target) ? options.target : [options.target];
 
   let queryBuilder: { returning: () => Promise<InferSelectModel<T>[]> };

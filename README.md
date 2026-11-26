@@ -34,10 +34,10 @@ Furthermore, repetitive database operations (soft-deletes, timestamp stamps, bat
 | `minRows(db, table, column, where?, options?)` | column minimum value query | `.` or `/query` |
 | `maxRows(db, table, column, where?, options?)` | column maximum value query | `.` or `/query` |
 | `paginate(db, table, options?)` | single roundtrip batch pagination returning `{ items, total, page, pageSize, totalPages, hasMore }` | `.` or `/query` |
-| `insertRow(db, table, values)` | insert single row with `.returning()` | `.` or `/query` |
-| `insertMany(db, table, values[])` | insert multiple rows in batch | `.` or `/query` |
+| `insertRow(db, table, values)` | insert single row with `.returning()`; stamps `createdAt`/`updatedAt` when the table carries them and the payload omits them | `.` or `/query` |
+| `insertMany(db, table, values[])` | insert multiple rows in batch, with the same insert-path timestamp fill | `.` or `/query` |
 | `upsertRow(db, table, values, options)` | atomic postgres upsert (`onConflictDoUpdate` or `onConflictDoNothing`) | `.` or `/query` |
-| `updateRow(db, table, id, values, options?)` | update by ID with automatic `updatedAt` update | `.` or `/query` |
+| `updateRow(db, table, id, values, options?)` | update by ID with automatic `updatedAt` update (typed per column: bigint-ms / text-ISO / Date) | `.` or `/query` |
 | `updateWhere(db, table, where, values, options?)` | update matching records with automatic `updatedAt` | `.` or `/query` |
 | `incrementRow(db, table, id, increments, extraValues?, options?)` | atomic column increment (`col = col + delta`) | `.` or `/query` |
 | `clampIncrementRow(db, table, id, column, delta, options)` | atomic bounded increment with `min` and `max` constraints | `.` or `/query` |
