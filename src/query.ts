@@ -494,7 +494,7 @@ export async function paginate<T extends AnyPgTable, C extends Partial<Record<ke
   db: BatchCapableDb,
   table: T,
   options: PaginateOptions<T> & { columns: C }
-): Promise<PaginationResult<Pick<InferSelectModel<T>, keyof C & keyof InferSelectModel<T>>>>;
+): Promise<PaginationResult<Pick<InferSelectModel<T>, Extract<keyof C, keyof InferSelectModel<T>>>>>;
 export async function paginate<T extends AnyPgTable>(
   db: BatchCapableDb,
   table: T,
