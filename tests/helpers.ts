@@ -20,3 +20,13 @@ export const orgs = pgTable('wh_orgs', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
+
+export const tenantItems = pgTable('wh_tenant_items', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull(),
+  title: text('title'),
+  status: text('status').default('active'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});

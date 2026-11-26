@@ -4,8 +4,10 @@ import {
   avgRows,
   batchQueries,
   clampIncrementRow,
+  countOrgRows,
   countRows,
   deleteByIds,
+  deleteOrgRow,
   deleteRow,
   deleteWhere,
   desc,
@@ -18,13 +20,17 @@ import {
   findFirstOrThrow,
   findMany,
   findManyByIds,
+  findManyByOrg,
   findMapByIds,
+  findOrgRow,
+  findOrgRowOrThrow,
   inArray,
   incrementRow,
   insertMany,
   insertRow,
   maxRows,
   minRows,
+  orgCondition,
   paginate,
   pluck,
   rawSql,
@@ -33,16 +39,18 @@ import {
   restoreWhere,
   searchCondition,
   softDeleteByIds,
+  softDeleteOrgRow,
   softDeleteRow,
   softDeleteWhere,
   sumRows,
   toggleRow,
+  updateOrgRow,
   updateRow,
   updateWhere,
   upsertRow,
 } from '../src';
 import { makeTestDb, resetDb } from './pglite';
-import { widgets } from './helpers';
+import { tenantItems, widgets } from './helpers';
 
 describe('query helpers', { timeout: 15000 }, () => {
   beforeEach(async () => {
@@ -555,5 +563,126 @@ describe('query helpers', { timeout: 15000 }, () => {
     await insertRow(db as never, widgets, { id: 'w_raw', name: 'RawWidget', count: 42 });
     const found = await findFirst(db as never, widgets, rawSql`${widgets.count} = 42`);
     expect(found?.id).toBe('w_raw');
+  });
+
+  it('findOrgRow returns row only when organization matches', async () => {
+    const db = await makeTestDb();
+    await insertRow(db as never, tenantItems, {
+      id: 't_1',
+      organizationId: 'org_a',
+      title: 'Item A',
+    });
+
+    const match = await findOrgRow(db as never, tenantItems, 't_1', 'org_a');
+    expect(match?.id).toBe('t_1');
+    expect(match?.title).toBe('Item A');
+
+    const mismatch = await findOrgRow(db as never, tenantItems, 't_1', 'org_b');
+    expect(mismatch).toBeNull();
+  });
+
+  it('findOrgRowOrThrow throws NotFoundError on mismatch or missing', async () => {
+    const db = await makeTestDb();
+    await insertRow(db as never, tenantItems, {
+      id: 't_throw',
+      organizationId: 'org_a',
+      title: 'Item Throw',
+    });
+
+    const found = await findOrgRowOrThrow(db as never, tenantItems, 't_throw', 'org_a', 'Item');
+    expect(found.id).toBe('t_throw');
+
+    await expect(
+      findOrgRowOrThrow(db as never, tenantItems, 't_throw', 'org_b', 'Item')
+    ).rejects.toThrow('Item not found');
+
+    await expect(
+      findOrgRowOrThrow(db as never, tenantItems, 't_missing', 'org_a', (id) => new Error(`Custom ${id}`))
+    ).rejects.toThrow('Custom t_missing');
+  });
+
+  it('findManyByOrg filters and orders records by organization', async () => {
+    const db = await makeTestDb();
+    await insertRow(db as never, tenantItems, { id: 't_m1', organizationId: 'org_x', title: 'Beta' });
+    await insertRow(db as never, tenantItems, { id: 't_m2', organizationId: 'org_x', title: 'Alpha' });
+    await insertRow(db as never, tenantItems, { id: 't_m3', organizationId: 'org_y', title: 'Gamma' });
+
+    const orgXItems = await findManyByOrg(db as never, tenantItems, 'org_x', {
+      orderBy: desc(tenantItems.title),
+    });
+    expect(orgXItems.length).toBe(2);
+    expect(orgXItems[0]?.title).toBe('Beta');
+    expect(orgXItems[1]?.title).toBe('Alpha');
+
+    const orgYItems = await findManyByOrg(db as never, tenantItems, 'org_y');
+    expect(orgYItems.length).toBe(1);
+    expect(orgYItems[0]?.title).toBe('Gamma');
+  });
+
+  it('countOrgRows counts scoped rows correctly', async () => {
+    const db = await makeTestDb();
+    await insertRow(db as never, tenantItems, { id: 't_c1', organizationId: 'org_cnt', title: 'One' });
+    await insertRow(db as never, tenantItems, { id: 't_c2', organizationId: 'org_cnt', title: 'Two' });
+    await insertRow(db as never, tenantItems, { id: 't_c3', organizationId: 'org_other', title: 'Three' });
+
+    const total = await countOrgRows(db as never, tenantItems, 'org_cnt');
+    expect(total).toBe(2);
+
+    const otherTotal = await countOrgRows(db as never, tenantItems, 'org_other');
+    expect(otherTotal).toBe(1);
+  });
+
+  it('updateOrgRow mutates only matching org row', async () => {
+    const db = await makeTestDb();
+    await insertRow(db as never, tenantItems, { id: 't_upd', organizationId: 'org_u', title: 'Before' });
+
+    const mismatched = await updateOrgRow(db as never, tenantItems, 't_upd', 'org_wrong', {
+      title: 'Hacked',
+    });
+    expect(mismatched).toBeNull();
+
+    const updated = await updateOrgRow(db as never, tenantItems, 't_upd', 'org_u', {
+      title: 'After',
+    });
+    expect(updated?.title).toBe('After');
+  });
+
+  it('softDeleteOrgRow flags record only within same organization', async () => {
+    const db = await makeTestDb();
+    await insertRow(db as never, tenantItems, { id: 't_sd', organizationId: 'org_s', title: 'Alive' });
+
+    const wrongOrg = await softDeleteOrgRow(db as never, tenantItems, 't_sd', 'org_other');
+    expect(wrongOrg).toBeNull();
+
+    const deleted = await softDeleteOrgRow(db as never, tenantItems, 't_sd', 'org_s', {
+      extraValues: { status: 'archived' },
+    });
+    expect(deleted?.deletedAt).not.toBeNull();
+    expect(deleted?.status).toBe('archived');
+
+    const active = await findOrgRow(db as never, tenantItems, 't_sd', 'org_s');
+    expect(active).toBeNull();
+
+    const withDeleted = await findOrgRow(db as never, tenantItems, 't_sd', 'org_s', { withDeleted: true });
+    expect(withDeleted).not.toBeNull();
+  });
+
+  it('deleteOrgRow physically removes row only for matching org', async () => {
+    const db = await makeTestDb();
+    await insertRow(db as never, tenantItems, { id: 't_del', organizationId: 'org_d', title: 'DeleteMe' });
+
+    const wrongDelete = await deleteOrgRow(db as never, tenantItems, 't_del', 'org_wrong');
+    expect(wrongDelete).toBe(false);
+
+    const successfulDelete = await deleteOrgRow(db as never, tenantItems, 't_del', 'org_d');
+    expect(successfulDelete).toBe(true);
+
+    const gone = await findOrgRow(db as never, tenantItems, 't_del', 'org_d', { withDeleted: true });
+    expect(gone).toBeNull();
+  });
+
+  it('orgCondition generates eq condition for org column', async () => {
+    const cond = orgCondition(tenantItems, 'org_cond');
+    expect(cond).toBeDefined();
   });
 });

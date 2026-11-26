@@ -909,3 +909,176 @@ export function searchCondition<T extends AnyPgTable>(
   }
   return conds.length > 0 ? or(...conds) : undefined;
 }
+
+function resolveOrgColumn<T extends AnyPgTable>(table: T, orgColumn = 'organizationId'): PgColumn {
+  const col = (table as unknown as Record<string, unknown>)[orgColumn];
+  if (!col) {
+    throw new Error(`Table does not have column "${orgColumn}"`);
+  }
+  return col as PgColumn;
+}
+
+export function orgCondition<T extends AnyPgTable>(
+  table: T,
+  organizationId: string,
+  orgColumn = 'organizationId'
+): SQL {
+  const col = resolveOrgColumn(table, orgColumn);
+  return eq(col, organizationId);
+}
+
+export async function findOrgRow<T extends AnyPgTable & { id: unknown }>(
+  db: BatchCapableDb,
+  table: T,
+  id: string,
+  organizationId: string,
+  options?: { orgColumn?: string; withDeleted?: boolean }
+): Promise<InferSelectModel<T> | null> {
+  const col = resolveOrgColumn(table, options?.orgColumn);
+  return findFirst(
+    db,
+    table,
+    and(eq(table.id as never, id), eq(col, organizationId)) as SQL,
+    options
+  );
+}
+
+export async function findOrgRowOrThrow<T extends AnyPgTable & { id: unknown }>(
+  db: BatchCapableDb,
+  table: T,
+  id: string,
+  organizationId: string,
+  labelOrMessage?: string | ((id: string) => Error),
+  options?: { orgColumn?: string; withDeleted?: boolean }
+): Promise<InferSelectModel<T>> {
+  const row = await findOrgRow(db, table, id, organizationId, options);
+  if (!row) {
+    if (typeof labelOrMessage === 'function') {
+      throw labelOrMessage(id);
+    }
+    throw new NotFoundError(labelOrMessage ? `${labelOrMessage} not found` : 'Resource not found');
+  }
+  return row;
+}
+
+export async function findManyByOrg<T extends AnyPgTable>(
+  db: BatchCapableDb,
+  table: T,
+  organizationId: string,
+  options?: FindManyOptions<T> & { orgColumn?: string }
+): Promise<InferSelectModel<T>[]> {
+  const col = resolveOrgColumn(table, options?.orgColumn);
+  const baseCondition = resolveWhere(table, options?.where, options?.withDeleted);
+  const orgCond = eq(col, organizationId);
+  const condition = (baseCondition ? and(orgCond, baseCondition) : orgCond) as SQL;
+
+  let query = db.select().from(table as never);
+  query = (query as never as { where: (c: SQL) => typeof query }).where(condition);
+
+  if (options?.orderBy) {
+    const order = typeof options.orderBy === 'function'
+      ? options.orderBy(table as unknown as TableColumns<T>)
+      : options.orderBy;
+    const orderClause = Array.isArray(order) ? order : [order];
+    query = (query as never as { orderBy: (...clauses: OrderByItem[]) => typeof query }).orderBy(...orderClause);
+  }
+
+  if (typeof options?.offset === 'number') {
+    query = (query as never as { offset: (n: number) => typeof query }).offset(options.offset);
+  }
+
+  if (typeof options?.limit === 'number') {
+    query = (query as never as { limit: (n: number) => typeof query }).limit(options.limit);
+  }
+
+  return (await (query as never as Promise<InferSelectModel<T>[]>)) as InferSelectModel<T>[];
+}
+
+export async function countOrgRows<T extends AnyPgTable>(
+  db: BatchCapableDb,
+  table: T,
+  organizationId: string,
+  where?: WhereInput<T>,
+  options?: { orgColumn?: string; withDeleted?: boolean }
+): Promise<number> {
+  const col = resolveOrgColumn(table, options?.orgColumn);
+  const baseCondition = resolveWhere(table, where, options?.withDeleted);
+  const orgCond = eq(col, organizationId);
+  const condition = (baseCondition ? and(orgCond, baseCondition) : orgCond) as SQL;
+
+  let query = db.select({ total: count() }).from(table as never);
+  query = (query as never as { where: (c: SQL) => typeof query }).where(condition);
+  const [row] = await (query as never as Promise<{ total: number }[]>);
+  return Number(row?.total ?? 0);
+}
+
+export async function updateOrgRow<T extends AnyPgTable & { id: unknown }>(
+  db: AnyDb,
+  table: T,
+  id: string,
+  organizationId: string,
+  values: Partial<InferInsertModel<T>>,
+  options?: MutationOptions & { orgColumn?: string }
+): Promise<InferSelectModel<T> | null> {
+  const col = resolveOrgColumn(table, options?.orgColumn);
+  const patch: Record<string, unknown> = { ...values };
+  if ('updatedAt' in table && patch.updatedAt === undefined) {
+    patch.updatedAt = currentTimestampForColumn((table as Record<string, unknown>).updatedAt);
+  }
+
+  let condition: SQL = and(eq(table.id as never, id), eq(col, organizationId)) as SQL;
+  if (!options?.withDeleted && 'deletedAt' in table) {
+    condition = and(condition, isNull((table as Record<string, unknown>).deletedAt as never)) as SQL;
+  }
+
+  const rows = (await (db
+    .update(table as never)
+    .set(patch as never)
+    .where(condition)
+    .returning() as unknown as Promise<InferSelectModel<T>[]>));
+  return rows[0] ?? null;
+}
+
+export async function softDeleteOrgRow<T extends AnyPgTable & { id: unknown }>(
+  db: AnyDb,
+  table: T,
+  id: string,
+  organizationId: string,
+  options?: { orgColumn?: string; extraValues?: Partial<InferInsertModel<T>> }
+): Promise<InferSelectModel<T> | null> {
+  const col = resolveOrgColumn(table, options?.orgColumn);
+  const deletedAtCol = (table as Record<string, unknown>).deletedAt;
+  const timestamp = currentTimestampForColumn(deletedAtCol);
+  const patch: Record<string, unknown> = { deletedAt: timestamp, ...options?.extraValues };
+  if ('updatedAt' in table && patch.updatedAt === undefined) {
+    patch.updatedAt = currentTimestampForColumn((table as Record<string, unknown>).updatedAt);
+  }
+
+  let condition: SQL = and(eq(table.id as never, id), eq(col, organizationId)) as SQL;
+  if ('deletedAt' in table) {
+    condition = and(condition, isNull(deletedAtCol as never)) as SQL;
+  }
+
+  const rows = (await (db
+    .update(table as never)
+    .set(patch as never)
+    .where(condition)
+    .returning() as unknown as Promise<InferSelectModel<T>[]>));
+  return rows[0] ?? null;
+}
+
+export async function deleteOrgRow<T extends AnyPgTable & { id: unknown }>(
+  db: AnyDb,
+  table: T,
+  id: string,
+  organizationId: string,
+  options?: { orgColumn?: string }
+): Promise<boolean> {
+  const col = resolveOrgColumn(table, options?.orgColumn);
+  const condition = and(eq(table.id as never, id), eq(col, organizationId)) as SQL;
+  const rows = (await (db
+    .delete(table as never)
+    .where(condition)
+    .returning({ id: table.id as never }) as unknown as Promise<{ id: string }[]>));
+  return rows.length > 0;
+}
