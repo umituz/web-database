@@ -549,10 +549,10 @@ export async function paginate<T extends AnyPgTable>(
           return (await (query as never as Promise<Record<string, unknown>[]>)) as Record<string, unknown>[];
         })();
 
-  const { items, total } = await batchQueries(db, {
-    items: itemsPromise,
-    total: countRows(db, table, options?.where, { withDeleted: options?.withDeleted }),
-  });
+  const [items, total] = await Promise.all([
+    itemsPromise,
+    countRows(db, table, options?.where, { withDeleted: options?.withDeleted }),
+  ]);
 
   const totalPages = Math.ceil(total / pageSize);
   return {

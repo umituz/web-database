@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   NotFoundError,
   avgRows,
@@ -321,6 +321,33 @@ describe('query helpers', { timeout: 15000 }, () => {
     expect(slice.page).toBe(2);
     expect(slice.items[0]?.id).toBe('of_13');
     expect(slice.items).toHaveLength(10);
+  });
+
+  it('paginate works on drivers exposing db.batch without routing promises into it', async () => {
+    const db = await makeTestDb();
+    const batch = vi.fn();
+    const batchDb = new Proxy(db, {
+      get(target, prop, receiver) {
+        return prop === 'batch' ? batch : Reflect.get(target, prop, receiver);
+      },
+    });
+    const rows = Array.from({ length: 7 }, (_, i) => ({
+      id: `bt_${i + 1}`,
+      name: `Batched ${i + 1}`,
+      count: i + 1,
+    }));
+    await insertMany(db as never, widgets, rows);
+
+    const page = await paginate(batchDb as never, widgets, {
+      columns: { id: true, count: true },
+      pageSize: 3,
+      orderBy: widgets.count,
+    });
+
+    expect(batch).not.toHaveBeenCalled();
+    expect(page.total).toBe(7);
+    expect(page.items).toHaveLength(3);
+    expect(page.items[0]).toEqual({ id: 'bt_1', count: 1 });
   });
 
   it('insertRow and insertMany insert and return rows', async () => {
